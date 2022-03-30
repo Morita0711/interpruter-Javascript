@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Document</title>
+</head>
+<body>
+	<h1>Please input bytecode</h1>
+	<div>
+		<textarea rows="30" style="width:50%;font-size: 1.5em;">
+LOAD_VAL 0
+WRITE_VAR 'x'
+
+LOOP 100
+
+READ_VAR 'x'
+LOAD_VAL 1
+ADD
+WRITE_VAR 'x'
+
+END_LOOP
+
+READ_VAR 'x'
+
+RETURN_VALUE
+		</textarea>
+	</div>
+	<div>
+		<button style="padding:10px 30px">RUN</button>
+	</div>
+	<div id="result" style="padding:10px"></div>
+</body>
+
+<script>
+(()=>{
+	const commands = {
+		RETURN_VALUE:   0,
+
+		ADD:       		11,
+		SUB:       		12,
+		MULTIPLY:       13,
+		DIV:       		14,
+
+		LOAD_VAL:       100,
+		WRITE_VAR:      101,
+		READ_VAR:       102,
+
+		LOOP:			103,
+		END_LOOP:		99,
+
+	}
+
+	const checkCommand = (line, cmd, act) => {
+		if (act===undefined) {
+			throw new Error(`Unkown command [${cmd}].`)
+		}
+	}
+	const requireNoArgument = (line, cmd, arg) => {
+		if (arg!==undefined) throw new Error(`#${line}: [${cmd}] requires no argument.`)
+	}
+	const requireArgument = (line, cmd, arg) => {
+		if (arg===undefined) throw new Error(`#${line}: [${cmd}] requires a argument.`)
+	}
+	const requireNumber = (line, cmd, arg) => {
+		if (isNaN(arg)) throw new Error(`#${line}: [${cmd}] requires a argument of numeric type.`)
+	}
+	const requireOperands = (line, cmd, arg1, arg2) => {
+		if (arg1===undefined || arg2===undefined) throw new Error(`#${line}: [${cmd}] requires both operands.`)
+	}
+	const requireLoadVal = (line, cmd, arg) => {
+		if (arg===undefined) throw new Error(`#${line}: [${cmd}] requires a assigned value before called`)
+	}
+	const undefinedVariable = (line, arg) => {
+		throw new Error(`#${line}: variable [${arg}] is not defined.`)
+	}
+	const requireQuotation = (line, arg) => {
+		throw new Error(`#${line}: argument of command [${arg}] requires quotation marked string.`)
+	}
+	const engine = (bytecode) => {
+		let variables = {} // {[variable:string]:number}
+		let stack = []
+		let loopStack = [] // {line:number, count:number, pointer:number}
+
+		const lines = bytecode.split(/\r\n|\r|\n/g)
+		for ( let i = 0; i < lines.length; i++ ) {
+			const line = lines[i].trim()
+			if (line) {
+				const x = line.split(/\s/)
+				const cmd = x[0]
+				let arg = x[1]
+				const act = commands[cmd]
+				checkCommand(i + 1, cmd, act)
+
+				if (act<100) {
+					requireNoArgument(i + 1, cmd, arg)
+					if (act===0) {
+						return stack.pop()
+					} else if (act===11) { // is operator add ?
+						const operand2 = stack.pop()
+						const operand1 = stack.pop()
+						requireOperands(i + 1, cmd, operand1, operand2)
+						stack.push(operand1 + operand2)
+					} else if (act===12) { // is operator sub ?
+						const operand2 = stack.pop()
+						const operand1 = stack.pop()
+						requireOperands(i + 1, cmd, operand1, operand2)
+						stack.push(operand1 - operand2)
+					} else if (act===13) { // is operator mul ?
+						const operand2 = stack.pop()
+						const operand1 = stack.pop()
+						requireOperands(i + 1, cmd, operand1, operand2)
+						stack.push(operand1 * operand2)
+					} else if (act===14) { // is operator div ?
+						const operand2 = stack.pop()
+						const operand1 = stack.pop()
+						requireOperands(i + 1, cmd, operand1, operand2)
+						stack.push(operand1 / operand2)
+					} else if (act===99) { // is end loop
+						if (loopStack.length===0) requireLoop(i + 1, cmd)
+						const loop = loopStack[loopStack.length - 1]
+						loop.pointer++
+						if (loop.pointer===loop.count) {
+							loopStack.pop()
+						} else {
+							i = loop.line
+						}
+					}
+				} else {
+					requireArgument(i + 1, cmd, arg)
+					arg = arg.trim()
+					if (act===100) { // is load value
+						requireNumber(i + 1, cmd, arg)
+						stack.push(Number(arg))
+					} else if (act===101) { // is write value
+						const value = stack.pop()
+						requireLoadVal(i + 1, cmd, value)
+						if (arg[0]==="'" && arg[arg.length-1]==="'") {
+							variables[arg.slice(1, -1)] = value
+						} else {
+							requireQuotation(i + 1, cmd)
+						}
+					} else if (act===102) { // is read var
+						let varname = ''
+						if (arg[0]==="'" && arg[arg.length-1]==="'") {
+							varname = arg.slice(1, -1)
+						} else {
+							requireQuotation(i + 1, cmd)
+						}
+						if (variables[varname]===undefined) undefinedVariable(i + 1, varname)
+						stack.push(variables[varname])
+					} else if (act===103) { // is loop
+						requireNumber(i + 1, cmd, arg)
+						loopStack.push({ line:i, count:Number(arg), pointer:0 })
+					
+					}
+				}
+			}
+		}
+		return result
+	}
+
+	const $ = (query) => document.querySelector(query)
+	const writeResult = (html) => {
+		$('#result').innerHTML = html
+	}
+	const onSubmit = () => {
+		try {
+			const bytecode = $('textarea').value
+			if (bytecode) {
+				writeResult('The result is <b>' + engine(bytecode) + '</b>')
+			} else {
+				writeResult("Please input bytecode to run")
+			}
+		} catch (error) {
+			writeResult(error.stack)
+		}
+	}
+	window.addEventListener('load', ()=>{
+		$('button').addEventListener('click', onSubmit)
+	})
+
+})()
+</script>
+
+</html>
